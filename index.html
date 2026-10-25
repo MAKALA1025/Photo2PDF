@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="写真PDF">
+<title>写真まとめPDF</title>
+<style>
+/* 1カラムのモバイル優先。画像リスト → 設定 → 画面下に固定した作成バー */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --ink: #18212c;
+  --muted: #5b6876;
+  --line: #d8dee5;
+  --accent: #1f58d6;
+  --accent-ink: #ffffff;
+  --ok: #1d7a4c;
+  --warn: #b5432a;
+  --font-body: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "ヒラギノ角ゴ ProN W3", "Yu Gothic", "Meiryo", sans-serif;
+  --font-num: var(--font-body);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151a; --surface: #1a2028; --ink: #e5eaf0; --muted: #94a2b1; --line: #2b343f;
+    --accent: #7ea3ff; --accent-ink: #0d1420; --ok: #5cc794; --warn: #f08a6f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151a; --surface: #1a2028; --ink: #e5eaf0; --muted: #94a2b1; --line: #2b343f;
+  --accent: #7ea3ff; --accent-ink: #0d1420; --ok: #5cc794; --warn: #f08a6f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+img { max-width: 100%; }
+body {
+  margin: 0; padding-top: env(safe-area-inset-top, 0px);
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+.wrap {
+  max-width: 640px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 140px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+header h1 { font-size: 24px; font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: .02em; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.section-head h2 { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--muted); margin: 0; }
+.linkbtn { background: none; border: 0; color: var(--accent); font: inherit; font-size: 14px; padding: 4px 0; cursor: pointer; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:focus-visible, .icon:focus-visible, .linkbtn:focus-visible, .seg label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.add-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.add-row .btn { flex: 1 1 100%; min-height: 56px; font-size: 16px; }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.empty {
+  border: 1.5px dashed var(--line); border-radius: 14px; padding: 28px 18px; text-align: center; color: var(--muted);
+}
+.empty b { color: var(--ink); display: block; font-size: 16px; margin-bottom: 4px; }
+
+ol.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+ol.list li {
+  display: grid; grid-template-columns: 28px 64px minmax(0,1fr) auto; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 8px 8px 10px;
+}
+.pg { color: var(--muted); font-size: 13px; text-align: right; }
+.thumb { width: 64px; height: 64px; display: grid; place-items: center; overflow: hidden; border-radius: 6px; background: var(--bg); }
+.thumb img { max-width: 64px; max-height: 64px; transition: transform .2s; }
+.meta { min-width: 0; }
+.meta .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.meta .dim { color: var(--muted); font-size: 12px; }
+.tools { display: flex; gap: 2px; }
+.icon {
+  width: 36px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink); cursor: pointer;
+}
+.icon:disabled { opacity: .25; cursor: default; }
+.icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon.del { color: var(--warn); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-size: 13px; color: var(--muted); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg label { flex: 1; position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg label span { display: block; text-align: center; padding: 10px 6px; font-size: 14px; cursor: pointer; }
+.seg label + label span { border-left: 1px solid var(--line); }
+.seg input:checked + span { background: var(--ink); color: var(--surface); font-weight: 700; }
+.inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+input[type=number], input[type=text] {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; min-width: 0;
+}
+input[type=number] { width: 96px; font-family: var(--font-num); }
+input[type=text] { width: 100%; }
+.hint { font-size: 12px; color: var(--muted); }
+
+.result { display: flex; flex-direction: column; gap: 12px; }
+.result .big { font-size: 28px; font-weight: 500; line-height: 1.2; }
+.result .big small { font-size: 14px; color: var(--muted); }
+.meter { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; background: var(--ok); border-radius: 5px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 16px; margin: 0; }
+.facts div { display: flex; flex-direction: column; }
+.facts dt { font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; }
+.msg { font-size: 14px; }
+.msg.err { color: var(--warn); }
+.msg.ok { color: var(--ok); }
+
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding-top: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.bar-in { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.bar .btn { width: 100%; }
+.progress { font-size: 13px; color: var(--muted); min-height: 1.4em; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .thumb img { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>写真まとめPDF</h1>
+    <p>写真（HEIC・JPEG・PNG）を1つのPDFにまとめます。容量が上限を超えないよう、画質を自動で調整します。画像は端末の中だけで処理され、どこにも送信されません。</p>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>画像 <span id="count" class="num"></span></h2>
+      <button type="button" id="clear" class="linkbtn" hidden>すべて外す</button>
+    </div>
+    <div class="add-row">
+      <label class="btn primary" for="file">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        画像を追加
+      </label>
+      <input id="file" type="file" accept="image/*,.heic,.heif" multiple>
+    </div>
+    <div id="empty" class="empty" style="margin-top:12px">
+      <b>まだ画像がありません</b>
+      「画像を追加」から写真ライブラリやファイルを選んでください。複数まとめて選べます。
+    </div>
+    <ol id="list" class="list" style="margin-top:12px"></ol>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>設定</h2></div>
+    <div class="panel">
+      <div class="field">
+        <span>容量の上限</span>
+        <div class="inline">
+          <input id="limit" type="number" min="0.5" max="200" step="0.5" value="10" inputmode="decimal">
+          <span>MB</span>
+          <span class="hint num" id="limitBytes"></span>
+        </div>
+      </div>
+      <div class="field">
+        <span>用紙</span>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="paper" id="paperFit" value="fit" checked><span>画像と同じ形</span></label>
+          <label><input type="radio" name="paper" id="paperA4" value="a4"><span>A4</span></label>
+        </div>
+        <span class="hint">A4 は横長の画像だと横向きのページになります。</span>
+      </div>
+      <div class="field">
+        <span>余白</span>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="margin" id="marginNone" value="0" checked><span>なし</span></label>
+          <label><input type="radio" name="margin" id="marginOn" value="10"><span>10 mm</span></label>
+        </div>
+      </div>
+      <label class="field" for="fname">
+        <span>ファイル名</span>
+        <input id="fname" type="text" autocomplete="off">
+      </label>
+    </div>
+  </section>
+
+  <section id="resultSec" hidden>
+    <div class="section-head"><h2>できあがり</h2></div>
+    <div class="panel result">
+      <div class="big num"><span id="rSize"></span> <small>/ 上限 <span id="rLimit"></span></small></div>
+      <div class="meter" aria-hidden="true"><i id="rMeter"></i></div>
+      <dl class="facts">
+        <div><dt>ページ数</dt><dd class="num" id="rPages"></dd></div>
+        <div><dt>画像の長辺</dt><dd class="num" id="rSide"></dd></div>
+        <div><dt>JPEG画質</dt><dd class="num" id="rQ"></dd></div>
+      </dl>
+      <button type="button" id="save" class="btn primary">PDFを保存・共有</button>
+      <div id="saveMsg" class="msg" role="status"></div>
+    </div>
+  </section>
+</div>
+
+<div class="bar">
+  <div class="bar-in">
+    <div id="progress" class="progress" role="status"></div>
+    <button type="button" id="make" class="btn primary" disabled>PDFを作成</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const items = []; // {id, file, name, w, h, thumb, rot}
+  let seq = 0, busy = false, result = null;
+
+  // 大きい方から順に試す（長辺px, JPEG画質）
+  const LEVELS = [
+    [4096, .92], [3600, .9], [3200, .88], [2800, .86], [2400, .84], [2200, .8], [2000, .78],
+    [1800, .75], [1600, .72], [1400, .68], [1280, .64], [1150, .6], [1024, .56], [900, .52],
+    [800, .48], [700, .44], [600, .4]
+  ];
+  const MAX_PIXELS = 16e6; // iPhone の canvas 上限より少し下
+
+  const ICONS = {
+    up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+    down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+    rot: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>',
+    del: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+  };
+
+  const mb = (b) => (b / 1e6).toFixed(2) + ' MB';
+  const limitBytes = () => {
+    const v = parseFloat($('limit').value);
+    return Math.round((isFinite(v) && v > 0 ? v : 10) * 1e6);
+  };
+
+  function today() {
+    const d = new Date(), p = (n) => String(n).padStart(2, '0');
+    return `写真_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  }
+  $('fname').value = today();
+
+  function loadImg(blob) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => res({ img, url });
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode')); };
+      img.src = url;
+    });
+  }
+
+  async function addFiles(files) {
+    const skipped = [];
+    for (const file of files) {
+      try {
+        const { img, url } = await loadImg(file);
+        const w = img.naturalWidth, h = img.naturalHeight;
+        const s = Math.min(1, 160 / Math.max(w, h));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const thumb = c.toDataURL('image/jpeg', .7);
+        c.width = c.height = 0;
+        URL.revokeObjectURL(url);
+        items.push({ id: ++seq, file, name: file.name || `画像${seq}`, w, h, thumb, rot: 0 });
+      } catch {
+        skipped.push(file.name || '画像');
+      }
+    }
+    invalidate();
+    render();
+    if (skipped.length) $('progress').textContent = `読み込めなかった画像があります：${skipped.join('、')}`;
+  }
+
+  function render() {
+    const list = $('list');
+    list.innerHTML = '';
+    items.forEach((it, i) => {
+      const li = document.createElement('li');
+      const rw = it.rot % 180 ? it.h : it.w, rh = it.rot % 180 ? it.w : it.h;
+      li.innerHTML = `
+        <span class="pg num">${i + 1}</span>
+        <span class="thumb"><img alt="" style="transform:rotate(${it.rot}deg)"></span>
+        <span class="meta"><div class="name"></div><div class="dim num">${rw} × ${rh}</div></span>
+        <span class="tools">
+          <button type="button" class="icon" data-act="up" aria-label="前へ" ${i === 0 ? 'disabled' : ''}>${ICONS.up}</button>
+          <button type="button" class="icon" data-act="down" aria-label="後ろへ" ${i === items.length - 1 ? 'disabled' : ''}>${ICONS.down}</button>
+          <button type="button" class="icon" data-act="rot" aria-label="右に回転">${ICONS.rot}</button>
+          <button type="button" class="icon del" data-act="del" aria-label="外す">${ICONS.del}</button>
+        </span>`;
+      li.querySelector('img').src = it.thumb;
+      li.querySelector('.name').textContent = it.name;
+      li.dataset.id = it.id;
+      list.appendChild(li);
+    });
+    $('empty').hidden = items.length > 0;
+    $('clear').hidden = items.length === 0;
+    $('count').textContent = items.length ? `${items.length}枚` : '';
+    $('make').disabled = busy || items.length === 0;
+  }
+
+  $('list').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || busy) return;
+    const id = +b.closest('li').dataset.id;
+    const i = items.findIndex((x) => x.id === id);
+    const act = b.dataset.act;
+    if (act === 'up' && i > 0) [items[i - 1], items[i]] = [items[i], items[i - 1]];
+    if (act === 'down' && i < items.length - 1) [items[i + 1], items[i]] = [items[i], items[i + 1]];
+    if (act === 'rot') items[i].rot = (items[i].rot + 90) % 360;
+    if (act === 'del') items.splice(i, 1);
+    invalidate();
+    render();
+  });
+
+  $('file').addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    $('progress').textContent = `${files.length}枚を読み込み中…`;
+    await addFiles(files);
+    if (!$('progress').textContent.startsWith('読み込めなかった')) $('progress').textContent = '';
+  });
+
+  $('clear').addEventListener('click', () => { if (busy) return; items.length = 0; invalidate(); render(); });
+
+  async function encode(it, maxSide, q) {
+    const { img, url } = await loadImg(it.file);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const s = Math.min(1, maxSide / Math.max(w, h), Math.sqrt(MAX_PIXELS / (w * h)));
+    const sw = Math.max(1, Math.round(w * s)), sh = Math.max(1, Math.round(h * s));
+    const side = it.rot % 180 !== 0;
+    const c = document.createElement('canvas');
+    c.width = side ? sh : sw; c.height = side ? sw : sh;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.translate(c.width / 2, c.height / 2);
+    g.rotate(it.rot * Math.PI / 180);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, -sw / 2, -sh / 2, sw, sh);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
+    const out = { bytes: new Uint8Array(await blob.arrayBuffer()), w: c.width, h: c.height };
+    c.width = c.height = 0;
+    URL.revokeObjectURL(url);
+    return out;
+  }
+
+  // JPEG をそのまま DCTDecode で埋め込む最小構成の PDF
+  function buildPdf(pages, paper, marginMm) {
+    const enc = new TextEncoder();
+    const parts = [], offsets = [];
+    let pos = 0;
+    const add = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); pos += b.length; };
+    const f = (n) => (Math.round(n * 100) / 100).toString();
+    add('%PDF-1.4\n');
+    add(new Uint8Array([37, 226, 227, 207, 211, 10]));
+    const n = pages.length;
+    const pageIds = pages.map((_, i) => 3 + i * 3);
+    offsets[1] = pos; add('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    offsets[2] = pos; add(`2 0 obj\n<< /Type /Pages /Kids [${pageIds.map((x) => x + ' 0 R').join(' ')}] /Count ${n} >>\nendobj\n`);
+    const A4S = 595.28, A4L = 841.89, m = marginMm * 72 / 25.4;
+    pages.forEach((p, i) => {
+      const pid = 3 + i * 3, cid = pid + 1, iid = pid + 2;
+      let W, H;
+      if (paper === 'a4') { [W, H] = p.w > p.h ? [A4L, A4S] : [A4S, A4L]; }
+      else {
+        const k = (A4L - 2 * m) / Math.max(p.w, p.h);
+        W = p.w * k + 2 * m; H = p.h * k + 2 * m;
+      }
+      const sc = Math.min((W - 2 * m) / p.w, (H - 2 * m) / p.h);
+      const dw = p.w * sc, dh = p.h * sc, dx = (W - dw) / 2, dy = (H - dh) / 2;
+      const content = `q ${f(dw)} 0 0 ${f(dh)} ${f(dx)} ${f(dy)} cm /Im0 Do Q`;
+      offsets[pid] = pos;
+      add(`${pid} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(H)}] /Resources << /XObject << /Im0 ${iid} 0 R >> /ProcSet [/PDF /ImageC] >> /Contents ${cid} 0 R >>\nendobj\n`);
+      offsets[cid] = pos;
+      add(`${cid} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`);
+      offsets[iid] = pos;
+      add(`${iid} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.bytes.length} >>\nstream\n`);
+      add(p.bytes);
+      add('\nendstream\nendobj\n');
+    });
+    const total = 3 + n * 3;
+    const xref = pos;
+    let x = `xref\n0 ${total}\n0000000000 65535 f \n`;
+    for (let k = 1; k < total; k++) x += String(offsets[k]).padStart(10, '0') + ' 00000 n \n';
+    add(x + `trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(parts, { type: 'application/pdf' });
+  }
+
+  async function tryLevel(li, opts, pass) {
+    const [side, q] = LEVELS[li];
+    const pages = [];
+    for (let i = 0; i < items.length; i++) {
+      $('progress').textContent = `${pass}回目の変換　${i + 1}/${items.length}枚（長辺 ${side}px・画質 ${Math.round(q * 100)}%）`;
+      pages.push(await encode(items[i], side, q));
+    }
+    const blob = buildPdf(pages, opts.paper, opts.margin);
+    const maxSide = Math.max(...pages.map((p) => Math.max(p.w, p.h)));
+    return { blob, li, maxSide, q, pages: pages.length };
+  }
+
+  function invalidate() {
+    result = null;
+    $('resultSec').hidden = true;
+    $('saveMsg').textContent = '';
+  }
+
+  $('make').addEventListener('click', async () => {
+    if (busy || !items.length) return;
+    busy = true; render(); invalidate();
+    const limit = limitBytes();
+    const opts = {
+      paper: document.querySelector('input[name=paper]:checked').value,
+      margin: +document.querySelector('input[name=margin]:checked').value
+    };
+    let pass = 1, best = null, r;
+    // 試した結果から各段階の容量を見積もり、収まりそうな段階へ直接飛ぶ
+    const pix = (li) => items.reduce((a, it) => {
+      const s = Math.min(1, LEVELS[li][0] / Math.max(it.w, it.h), Math.sqrt(MAX_PIXELS / (it.w * it.h)));
+      return a + it.w * it.h * s * s;
+    }, 0);
+    const qf = (li) => Math.pow(1.08 - LEVELS[li][1], -0.8);
+    const est = (li, from) => from.blob.size * (pix(li) / pix(from.li)) * (qf(li) / qf(from.li));
+    try {
+      let li = 0, fail = -1; // fail: 収まらなかった中で最も下の段階
+      while (pass <= 8) {
+        r = await tryLevel(li, opts, pass++);
+        if (r.blob.size <= limit) {
+          best = r;
+          const up = li - 1;
+          if (up <= fail || up < 0 || est(up, r) > limit) break;
+          li = up;
+        } else {
+          fail = li;
+          if (best && best.li === li + 1) break;
+          let next = li + 1;
+          while (next < LEVELS.length - 1 && est(next, r) > limit * 0.95) next++;
+          if (next >= LEVELS.length) break;
+          if (best && next >= best.li) break;
+          li = next;
+        }
+      }
+      if (!best) {
+        $('progress').textContent = `いちばん低い画質でも ${mb(r.blob.size)} になり、上限に収まりません。枚数を減らすか上限を上げてください。`;
+      } else {
+        result = { ...best, limit };
+        showResult();
+        $('progress').textContent = '';
+      }
+    } catch (e) {
+      console.error(e);
+      $('progress').textContent = '変換中に問題が起きました。枚数を減らしてもう一度試してください。';
+    } finally {
+      busy = false; render();
+    }
+  });
+
+  function showResult() {
+    const r = result;
+    $('rSize').textContent = mb(r.blob.size);
+    $('rLimit').textContent = mb(r.limit);
+    $('rMeter').style.width = Math.min(100, r.blob.size / r.limit * 100).toFixed(1) + '%';
+    $('rPages').textContent = `${r.pages} ページ`;
+    $('rSide').textContent = `最大 ${r.maxSide}px`;
+    $('rQ').textContent = `${Math.round(r.q * 100)}%`;
+    $('resultSec').hidden = false;
+    $('resultSec').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  // iPhone では共有メニュー（「ファイル」に保存など）、使えない環境ではダウンロード
+  $('save').addEventListener('click', async () => {
+    if (!result) return;
+    const msg = $('saveMsg');
+    msg.className = 'msg'; msg.textContent = '';
+    let name = ($('fname').value || today()).trim().replace(/[\\/:*?"<>|]/g, '_');
+    if (!/\.pdf$/i.test(name)) name += '.pdf';
+    const file = new File([result.blob], name, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        msg.className = 'msg ok';
+        msg.textContent = `${name} を共有メニューに渡しました。`;
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') { msg.textContent = '保存を取りやめました。'; return; }
+      }
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    msg.className = 'msg ok';
+    msg.textContent = `${name} をダウンロードしました。`;
+  });
+
+  function showLimit() { $('limitBytes').textContent = `= ${limitBytes().toLocaleString()} バイト以内`; }
+  $('limit').addEventListener('input', () => { showLimit(); invalidate(); });
+  document.querySelectorAll('input[name=paper], input[name=margin]').forEach((el) => el.addEventListener('change', invalidate));
+  showLimit();
+  render();
+})();
+</script>
+</body>
+</html>
